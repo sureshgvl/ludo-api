@@ -1,0 +1,28 @@
+# Render Blueprint: creates the API web service and its PostgreSQL database.
+databases:
+  - name: ludo-db
+    plan: free
+    databaseName: ludo
+
+services:
+  - type: web
+    name: ludo-api
+    runtime: node
+    plan: free
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm run start:prod
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ludo-db
+          property: connectionString
+      - key: ADMIN_API_KEY
+        generateValue: true
+      # Must be the same value as INTERNAL_API_KEY on ludo-game-server. Enter it when prompted.
+      - key: INTERNAL_API_KEY
+        sync: false
+      - key: CORS_ORIGIN
+        value: "*"

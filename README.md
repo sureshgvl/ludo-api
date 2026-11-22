@@ -38,3 +38,11 @@ Skeleton only. A health endpoint exists; auth, tournaments, leaderboards and pri
 4. At the end, ranks are fixed (points, then wins, then earliest registration) and prize awards are created for players who played. Admin lists them (`GET /api/admin/tournaments/:id/awards`) and marks them handed over (`POST .../awards/:userId/delivered`).
 
 Tournaments are free to enter with prizes funded by you or a sponsor. Do not add paid entry or a wallet before getting legal advice under India's Online Gaming Act 2025.
+
+## Deploy on Render
+
+1. In Render: New → Blueprint → pick this repo. It creates `ludo-api` and the `ludo-db` PostgreSQL database; migrations run on start.
+2. When asked, set `INTERNAL_API_KEY` to a long random string (keep a copy for the game server). `ADMIN_API_KEY` is generated; read it under the service's Environment tab.
+3. Check `https://<your-api>.onrender.com/api/health`.
+
+Free Render services sleep when idle (first request is slow) and the free database expires after a while: use paid plans before real users.
