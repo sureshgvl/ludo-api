@@ -1,12 +1,13 @@
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
+import { createApp } from "./app";
+import { config } from "./config";
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
-  app.setGlobalPrefix('api');
-  const port = Number(process.env.PORT ?? 3000);
-  await app.listen(port);
-  console.log(`ludo-api listening on :${port}`);
+  const app = await createApp();
+  await app.listen(config.port);
+  console.log(`ludo-api listening on :${config.port}`);
 }
 
-bootstrap();
+bootstrap().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
