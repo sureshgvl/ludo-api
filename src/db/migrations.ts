@@ -43,4 +43,28 @@ export const MIGRATIONS: { id: string; sql: string }[] = [
         on tournament_entries (tournament_id, points desc, wins desc, joined_at);
     `,
   },
+  {
+    id: "002_results_and_prizes",
+    sql: `
+      -- One row per game already counted, so a retried report never scores twice.
+      create table tournament_games (
+        tournament_id uuid not null references tournaments(id) on delete cascade,
+        game_id text not null,
+        placements jsonb not null,
+        recorded_at timestamptz not null default now(),
+        primary key (tournament_id, game_id)
+      );
+
+      create table prize_awards (
+        tournament_id uuid not null references tournaments(id) on delete cascade,
+        user_id text not null,
+        rank integer not null,
+        prize text not null,
+        status text not null default 'pending' check (status in ('pending', 'delivered')),
+        created_at timestamptz not null default now(),
+        delivered_at timestamptz,
+        primary key (tournament_id, user_id)
+      );
+    `,
+  },
 ];

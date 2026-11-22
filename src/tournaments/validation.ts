@@ -101,7 +101,34 @@ export function parseEntry(input: unknown): { userId: string; name: string } {
   return { userId, name: name || "Player" };
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export interface GameResultInput {
+  gameId: string;
+  tournamentId: string;
+  placements: { userId: string; placement: number; isBot: boolean }[];
+}
+
+export function parseGameResult(input: unknown): GameResultInput {
+  if (!isObject(input)) bad("Body must be a JSON object");
+  const gameId = typeof input.gameId === "string" ? input.gameId.trim() : "";
+  if (!gameId || gameId.length > 100) bad("gameId is required (max 100 characters)");
+  const tournamentId = typeof input.tournamentId === "string" ? input.tournamentId : "";
+  if (!isUuid(tournamentId)) bad("tournamentId must be a tournament id");
+  const raw = input.placements;
+  if (!Array.isArray(raw) || raw.length < 2 || raw.length > 4) bad("placements must list 2 to 4 players");
+  const placements = raw.map((p) => {
+    if (!isObject(p)) bad("each placement must be an object");
+    const userId = typeof p.userId === "string" ? p.userId.trim() : "";
+    if (!userId || userId.length > 64) bad("each placement needs a userId");
+    if (!isInt(p.placement, 1, 4)) bad("placement must be a whole number from 1 to 4");
+    return { userId, placement: p.placement, isBot: p.isBot === true };
+  });
+  const sorted = placements.map((p) => p.placement).sort((a, b) => a - b);
+  if (!sorted.every((v, i) => v === i + 1)) bad("placements must be 1..n with no gaps or repeats");
+  if (new Set(placements.map((p) => p.userId)).size !== placements.length) bad("a player appears twice");
+  return { gameId, tournamentId, placements };
+}
+
+const UUID =/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function isUuid(v: string): boolean {
   return UUID.test(v);
 }

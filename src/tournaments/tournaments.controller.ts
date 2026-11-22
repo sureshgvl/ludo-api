@@ -24,6 +24,12 @@ export class TournamentsController {
     return this.tournaments.leaderboard(id, limit ? Number(limit) : 50);
   }
 
+  /** Prize winners of a finished tournament. */
+  @Get(":id/awards")
+  awards(@Param("id") id: string) {
+    return this.tournaments.awards(id);
+  }
+
   @Post(":id/entries")
   register(@Param("id") id: string, @Body() body: unknown) {
     return this.tournaments.register(id, body);
