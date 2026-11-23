@@ -19,6 +19,8 @@ services:
         fromDatabase:
           name: ludo-db
           property: connectionString
+      - key: JWT_SECRET
+        sync: false # long random string; must be identical on ludo-game-server
       - key: ADMIN_API_KEY
         generateValue: true
       # Must be the same value as INTERNAL_API_KEY on ludo-game-server. Enter it when prompted.

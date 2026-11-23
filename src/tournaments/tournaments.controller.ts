@@ -1,9 +1,11 @@
-import { Body, Controller, Delete, Get, HttpCode, Inject, NotFoundException, Param, Post, Query } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Inject, NotFoundException, Param, Post, Query, Req, UnauthorizedException } from "@nestjs/common";
+import { userFromRequest } from "../auth/auth.controller";
+import { config } from "../config";
 import { TournamentsService } from "./tournaments.service";
 
 /**
  * Player-facing endpoints.
- * TODO: take the user from an auth token instead of the request body / path.
+ * When JWT_SECRET is set the player comes from the Bearer token; otherwise (dev) from the request.
  */
 @Controller("tournaments")
 export class TournamentsController {
@@ -31,7 +33,12 @@ export class TournamentsController {
   }
 
   @Post(":id/entries")
-  register(@Param("id") id: string, @Body() body: unknown) {
+  register(@Param("id") id: string, @Body() body: unknown, @Req() req: unknown) {
+    if (config.jwtSecret) {
+      const u = userFromRequest(req);
+      if (!u) throw new UnauthorizedException("Log in first");
+      return this.tournaments.register(id, { userId: u.sub, name: u.name });
+    }
     return this.tournaments.register(id, body);
   }
 
@@ -44,7 +51,11 @@ export class TournamentsController {
 
   @Delete(":id/entries/:userId")
   @HttpCode(204)
-  async withdraw(@Param("id") id: string, @Param("userId") userId: string) {
+  async withdraw(@Param("id") id: string, @Param("userId") userId: string, @Req() req: unknown) {
+    if (config.jwtSecret) {
+      const u = userFromRequest(req);
+      if (!u || u.sub !== userId) throw new UnauthorizedException();
+    }
     await this.tournaments.withdraw(id, userId);
   }
 }

@@ -67,4 +67,16 @@ export const MIGRATIONS: { id: string; sql: string }[] = [
       );
     `,
   },
+  {
+    id: "003_users",
+    sql: `
+      create table users (
+        id text primary key,
+        phone text not null unique,
+        name text not null,
+        password_hash text not null,
+        created_at timestamptz not null default now()
+      );
+    `,
+  },
 ];

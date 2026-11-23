@@ -46,3 +46,11 @@ Tournaments are free to enter with prizes funded by you or a sponsor. Do not add
 3. Check `https://<your-api>.onrender.com/api/health`.
 
 Free Render services sleep when idle (first request is slow) and the free database expires after a while: use paid plans before real users.
+
+## Player login
+
+`POST /api/auth/register {phone, password, name}` and `POST /api/auth/login {phone, password}` return `{token, user}`
+(10-digit Indian mobile + password, scrypt-hashed; 10 wrong tries locks a number for 15 minutes). `GET /api/auth/me` reads the token.
+Set the same `JWT_SECRET` here and on `ludo-game-server`. With it set, tournament entry takes the player from the
+`Authorization: Bearer` token. With it empty (local dev) the old trust-the-userId behaviour stays. OTP by SMS can replace the
+password later without changing the token format.
