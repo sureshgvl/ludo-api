@@ -89,4 +89,32 @@ export const MIGRATIONS: { id: string; sql: string }[] = [
       create index users_email_idx on users (email);
     `,
   },
+  {
+    id: "005_rewards",
+    sql: `
+      create table ledger (
+        id bigserial primary key,
+        user_id text not null,
+        coins integer not null default 0,
+        xp integer not null default 0,
+        reason text not null,
+        ref text not null,
+        note text not null default '',
+        created_at timestamptz not null default now(),
+        unique (user_id, reason, ref)
+      );
+      create index ledger_user_idx on ledger (user_id, created_at desc);
+      create index ledger_time_idx on ledger (created_at);
+
+      create table user_stats (
+        user_id text primary key,
+        coins integer not null default 0 check (coins >= 0),
+        xp integer not null default 0,
+        games integer not null default 0,
+        wins integer not null default 0,
+        streak integer not null default 0,
+        last_daily date
+      );
+    `,
+  },
 ];
