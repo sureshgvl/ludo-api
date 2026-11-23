@@ -20,6 +20,8 @@ export interface AwardView {
   prize: string;
   status: "pending" | "delivered";
   deliveredAt: string | null;
+  /** Only returned to admins. */
+  contact?: { phone: string | null; email: string | null };
 }
 
 export type RecordResult =
@@ -308,11 +310,12 @@ export class TournamentsService {
     await client.query("update tournaments set status = 'finished', finished_at = $2 where id = $1", [id, now]);
   }
 
-  async awards(id: string): Promise<AwardView[]> {
+  async awards(id: string, withContact = false): Promise<AwardView[]> {
     await this.get(id);
     const res = await this.pool.query(
-      `select a.*, e.name from prize_awards a
+      `select a.*, e.name, u.phone, u.email from prize_awards a
        join tournament_entries e on e.tournament_id = a.tournament_id and e.user_id = a.user_id
+       left join users u on u.id = a.user_id
        where a.tournament_id = $1 order by a.rank`,
       [id],
     );
@@ -324,6 +327,7 @@ export class TournamentsService {
       prize: r.prize,
       status: r.status,
       deliveredAt: r.delivered_at ? r.delivered_at.toISOString() : null,
+      ...(withContact ? { contact: { phone: r.phone ?? null, email: r.email ?? null } } : {}),
     }));
   }
 
@@ -335,7 +339,7 @@ export class TournamentsService {
       [id, userId],
     );
     if (res.rowCount === 0) throw new NotFoundException("No prize award for that player");
-    return (await this.awards(id)).find((a) => a.userId === userId)!;
+    return (await this.awards(id, true)).find((a) => a.userId === userId)!;
   }
 
   async leaderboard(id: string, limit = 50): Promise<EntryView[]> {

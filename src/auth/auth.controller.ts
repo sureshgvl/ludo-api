@@ -13,7 +13,11 @@ export class AuthController {
   constructor(@Inject(AuthService) private readonly auth: AuthService) {}
 
   @Post("register")
-  register(@Body() body: unknown) { return this.auth.register(body); }
+  register(@Body() body: unknown, @Req() req: any) { return this.auth.register(body, req.ip); }
+
+  @Post("google")
+  @HttpCode(200)
+  google(@Body() body: unknown, @Req() req: any) { return this.auth.google(body, req.ip); }
 
   @Post("login")
   @HttpCode(200)

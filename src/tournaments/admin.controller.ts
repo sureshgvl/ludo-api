@@ -20,7 +20,7 @@ export class AdminController {
 
   @Get("tournaments/:id/awards")
   awards(@Param("id") id: string) {
-    return this.tournaments.awards(id);
+    return this.tournaments.awards(id, true);
   }
 
   /** Mark a prize as handed over to the winner. */

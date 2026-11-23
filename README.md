@@ -54,3 +54,11 @@ Free Render services sleep when idle (first request is slow) and the free databa
 Set the same `JWT_SECRET` here and on `ludo-game-server`. With it set, tournament entry takes the player from the
 `Authorization: Bearer` token. With it empty (local dev) the old trust-the-userId behaviour stays. OTP by SMS can replace the
 password later without changing the token format.
+
+### Google login
+
+`POST /api/auth/google {idToken}` verifies a Google ID token with Google (`tokeninfo`), checks it was issued for one of
+`GOOGLE_CLIENT_IDS`, and creates or finds the user (same token format as the password login). In Google Cloud Console create an
+OAuth client of type "Web application" (add your game server URL under Authorized JavaScript origins); for the Flutter app also create an
+Android client (package name + SHA-1) and put all IDs in `GOOGLE_CLIENT_IDS`. `MAX_SIGNUPS_PER_IP_PER_DAY` (default 5) limits account farming.
+Admin award lists include each winner's phone and email so you can send the prize.
