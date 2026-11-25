@@ -7,10 +7,10 @@ import {
 } from "@nestjs/common";
 import { Pool, PoolClient } from "pg";
 import { PG_POOL } from "../db/database.module";
-import { isUuid, parseCreateTournament, parseEntry, parseGameResult, PrizeTierInput } from "./validation";
+import { levelFor, periodStart } from "../rewards/rules";
+import { isUuid, normalizeRules, parseCreateTournament, parseEntry, parseGameResult, PrizeTierInput, TournamentRules } from "./validation";
 
 /** A game only counts when at least this many real players took part (stops farming points against bots). */
-export const MIN_HUMANS_PER_GAME = 2;
 
 export interface AwardView {
   tournamentId: string;
@@ -41,6 +41,7 @@ export interface TournamentView {
   maxPlayers: number | null;
   playersPerGame: number;
   points: number[];
+  rules: TournamentRules;
   entryCount: number;
   prizes: PrizeTierInput[];
 }
@@ -69,6 +70,7 @@ function toTournament(row: any, prizes: PrizeTierInput[]): TournamentView {
     maxPlayers: row.max_players,
     playersPerGame: row.players_per_game,
     points: row.points,
+    rules: normalizeRules(row.rules),
     entryCount: row.entry_count,
     prizes,
   };
@@ -99,9 +101,9 @@ export class TournamentsService {
     const id = await this.inTransaction(async (client) => {
       const res = await client.query(
         `insert into tournaments
-           (name, description, status, starts_at, ends_at, max_players, players_per_game, points)
-         values ($1, $2, $3, $4, $5, $6, $7, $8) returning id`,
-        [v.name, v.description, status, v.startsAt, v.endsAt, v.maxPlayers, v.playersPerGame, v.points],
+           (name, description, status, starts_at, ends_at, max_players, players_per_game, points, rules)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning id`,
+        [v.name, v.description, status, v.startsAt, v.endsAt, v.maxPlayers, v.playersPerGame, v.points, JSON.stringify(v.rules)],
       );
       for (const p of v.prizes) {
         await client.query(
@@ -194,7 +196,7 @@ export class TournamentsService {
     const res = await this.pool.query(
       `select * from (
          select user_id, name, points, games_played, wins,
-                row_number() over (order by points desc, wins desc, joined_at asc, user_id asc)::int as rank
+                row_number() over (order by points desc, tiebreak_value desc, joined_at asc, user_id asc)::int as rank
          from tournament_entries where tournament_id = $1
        ) ranked where user_id = $2`,
       [id, userId],
@@ -207,7 +209,7 @@ export class TournamentsService {
   /** Can this user play a counted game in this tournament right now? Used by the game server. */
   async eligibility(id: string, userId: string) {
     if (!isUuid(id)) return { eligible: false, reason: "not_found", playersPerGame: null };
-    const t = await this.pool.query("select status, players_per_game from tournaments where id = $1", [id]);
+    const t = await this.pool.query("select status, players_per_game, rules from tournaments where id = $1", [id]);
     if (t.rowCount === 0) return { eligible: false, reason: "not_found", playersPerGame: null };
     const playersPerGame = t.rows[0].players_per_game as number;
     if (t.rows[0].status !== "running") return { eligible: false, reason: "not_running", playersPerGame };
@@ -216,6 +218,11 @@ export class TournamentsService {
       [id, userId],
     );
     if (e.rowCount === 0) return { eligible: false, reason: "not_registered", playersPerGame };
+    const rules = normalizeRules(t.rows[0].rules);
+    if (rules.minLevel > 1) {
+      const s = await this.pool.query("select xp from user_stats where user_id = $1", [userId]);
+      if (levelFor(s.rows[0]?.xp ?? 0).level < rules.minLevel) return { eligible: false, reason: "level_too_low", playersPerGame };
+    }
     return { eligible: true, reason: null, playersPerGame };
   }
 
@@ -227,7 +234,7 @@ export class TournamentsService {
     const g = parseGameResult(input);
     return this.inTransaction(async (client): Promise<RecordResult> => {
       const t = await client.query(
-        "select status, players_per_game, points from tournaments where id = $1 for update",
+        "select status, players_per_game, points, rules from tournaments where id = $1 for update",
         [g.tournamentId],
       );
       if (t.rowCount === 0) return { status: "ignored", reason: "tournament_not_found" };
@@ -235,8 +242,9 @@ export class TournamentsService {
       if (g.placements.length !== t.rows[0].players_per_game) {
         throw new BadRequestException(`This tournament is played with ${t.rows[0].players_per_game} players per game`);
       }
+      const rules = normalizeRules(t.rows[0].rules);
       const humans = g.placements.filter((p) => !p.isBot);
-      if (humans.length < MIN_HUMANS_PER_GAME) return { status: "ignored", reason: "not_enough_humans" };
+      if (humans.length < Math.max(rules.minHumans, 1)) return { status: "ignored", reason: "not_enough_humans" };
 
       const seen = await client.query(
         `insert into tournament_games (tournament_id, game_id, placements) values ($1, $2, $3)
@@ -246,18 +254,44 @@ export class TournamentsService {
       if (seen.rowCount === 0) return { status: "duplicate" };
 
       const scale: number[] = t.rows[0].points;
+      const dayStart = periodStart("daily", new Date())!;
       const applied: { userId: string; points: number; total: number }[] = [];
       for (const p of humans) {
-        const points = scale[p.placement - 1] ?? 0;
+        const entry = await client.query(
+          "select games_played from tournament_entries where tournament_id = $1 and user_id = $2 for update",
+          [g.tournamentId, p.userId],
+        );
+        if (entry.rowCount === 0) continue; // not registered
+        const counts = (
+          await client.query(
+            `select count(*)::int as total, count(*) filter (where created_at >= $3)::int as today
+               from tournament_scores where tournament_id = $1 and user_id = $2`,
+            [g.tournamentId, p.userId, dayStart],
+          )
+        ).rows[0];
+        if (rules.maxGames !== null && counts.total >= rules.maxGames) continue;
+        if (rules.maxGamesPerDay !== null && counts.today >= rules.maxGamesPerDay) continue;
+
+        const points = gameScore(scale, rules, p);
+        await client.query(
+          `insert into tournament_scores (tournament_id, user_id, game_id, placement, points, captures, home)
+           values ($1,$2,$3,$4,$5,$6,$7)`,
+          [g.tournamentId, p.userId, g.gameId, p.placement, points, p.captures, p.home],
+        );
         const res = await client.query(
           `update tournament_entries
-             set points = points + $3, games_played = games_played + 1,
-                 wins = wins + $4, last_game_at = now()
-           where tournament_id = $1 and user_id = $2
-           returning points`,
-          [g.tournamentId, p.userId, points, p.placement === 1 ? 1 : 0],
+              set points = (select coalesce(sum(s.points), 0)::int from (
+                    select points from tournament_scores where tournament_id = $1 and user_id = $2
+                    order by points desc limit $5) s),
+                  games_played = games_played + 1,
+                  wins = wins + $3,
+                  tiebreak_value = case $4::text when 'wins' then wins + $3 when 'fewest_games' then -(games_played + 1) else 0 end,
+                  last_game_at = now()
+            where tournament_id = $1 and user_id = $2
+            returning points`,
+          [g.tournamentId, p.userId, p.placement === 1 ? 1 : 0, rules.tiebreak, rules.bestN ?? 1000000],
         );
-        if (res.rowCount) applied.push({ userId: p.userId, points, total: res.rows[0].points });
+        applied.push({ userId: p.userId, points, total: res.rows[0].points });
       }
       return { status: "applied", applied };
     });
@@ -293,7 +327,7 @@ export class TournamentsService {
     const ranked = (
       await client.query(
         `select user_id, games_played,
-                row_number() over (order by points desc, wins desc, joined_at asc, user_id asc)::int as rank
+                row_number() over (order by points desc, tiebreak_value desc, joined_at asc, user_id asc)::int as rank
          from tournament_entries where tournament_id = $1 order by rank`,
         [id],
       )
@@ -347,7 +381,7 @@ export class TournamentsService {
     const n = Math.min(Math.max(Math.floor(limit) || 50, 1), 200);
     const res = await this.pool.query(
       `select user_id, name, points, games_played, wins,
-              row_number() over (order by points desc, wins desc, joined_at asc, user_id asc)::int as rank
+              row_number() over (order by points desc, tiebreak_value desc, joined_at asc, user_id asc)::int as rank
        from tournament_entries where tournament_id = $1
        order by rank limit $2`,
       [id, n],
@@ -361,4 +395,18 @@ export class TournamentsService {
       rank: r.rank,
     }));
   }
+}
+
+/** Points one player earns from one game under the tournament's rules. */
+export function gameScore(
+  scale: number[],
+  rules: TournamentRules,
+  p: { placement: number; captures: number; home: number },
+): number {
+  return (
+    (scale[p.placement - 1] ?? 0) +
+    (p.placement === 1 ? rules.winBonus : 0) +
+    p.captures * rules.capturePoints +
+    p.home * rules.homePoints
+  );
 }

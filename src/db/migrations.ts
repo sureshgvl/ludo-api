@@ -117,4 +117,24 @@ export const MIGRATIONS: { id: string; sql: string }[] = [
       );
     `,
   },
+  {
+    id: "006_tournament_rules",
+    sql: `
+      alter table tournaments add column rules jsonb not null default '{}'::jsonb;
+      alter table tournament_entries add column tiebreak_value integer not null default 0;
+      update tournament_entries set tiebreak_value = wins;
+      create table tournament_scores (
+        tournament_id uuid not null references tournaments(id) on delete cascade,
+        user_id text not null,
+        game_id text not null,
+        placement integer not null,
+        points integer not null,
+        captures integer not null default 0,
+        home integer not null default 0,
+        created_at timestamptz not null default now(),
+        primary key (tournament_id, game_id, user_id)
+      );
+      create index tournament_scores_user_idx on tournament_scores (tournament_id, user_id, points desc);
+    `,
+  },
 ];
