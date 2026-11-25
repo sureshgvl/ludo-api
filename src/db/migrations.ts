@@ -153,4 +153,18 @@ export const MIGRATIONS: { id: string; sql: string }[] = [
       create index game_log_user_time on game_log (user_id, created_at desc);
     `,
   },
+  {
+    id: "008_friends",
+    sql: `
+      alter table users add column friend_code text unique;
+      create table friends (
+        user_id text not null,
+        friend_id text not null,
+        created_at timestamptz not null default now(),
+        primary key (user_id, friend_id),
+        check (user_id <> friend_id)
+      );
+      create index friends_friend_idx on friends (friend_id);
+    `,
+  },
 ];
