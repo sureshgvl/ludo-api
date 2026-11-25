@@ -28,7 +28,7 @@ export interface WalletView {
 
 export interface GameResultInput {
   gameId: string;
-  placements: { userId: string; placement: number; isBot: boolean }[];
+  placements: { userId: string; placement: number; isBot: boolean; captures: number; home: number }[];
 }
 
 function parseResult(input: unknown): GameResultInput {
@@ -40,7 +40,9 @@ function parseResult(input: unknown): GameResultInput {
     if (!p || typeof p.userId !== "string" || !Number.isInteger(p.placement) || p.placement < 1 || p.placement > 4) {
       throw new BadRequestException("invalid placement");
     }
-    return { userId: p.userId, placement: p.placement as number, isBot: !!p.isBot };
+    const captures = Number.isInteger(p.captures) && p.captures >= 0 ? Math.min(p.captures, 50) : 0;
+    const home = Number.isInteger(p.home) && p.home >= 0 ? Math.min(p.home, 4) : 0;
+    return { userId: p.userId, placement: p.placement as number, isBot: !!p.isBot, captures, home };
   });
   if (placements.length < 2 || placements.length > 4) throw new BadRequestException("2 to 4 players expected");
   return { gameId: o.gameId.slice(0, 80), placements };
@@ -50,7 +52,7 @@ function parseResult(input: unknown): GameResultInput {
 export class RewardsService {
   constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
 
-  private async tx<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {
+  async tx<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {
     const c = await this.pool.connect();
     try {
       await c.query("begin");
@@ -66,7 +68,7 @@ export class RewardsService {
   }
 
   /** Adds one ledger entry once per (user, reason, ref). Returns false when it was already there. */
-  private async credit(c: PoolClient, userId: string, r: GameReward, reason: string, ref: string, note = ""): Promise<boolean> {
+  async credit(c: PoolClient, userId: string, r: GameReward, reason: string, ref: string, note = ""): Promise<boolean> {
     const ins = await c.query(
       "insert into ledger (user_id, coins, xp, reason, ref, note) values ($1,$2,$3,$4,$5,$6) on conflict do nothing returning id",
       [userId, r.coins, r.xp, reason, ref, note],
@@ -96,6 +98,10 @@ export class RewardsService {
         const reason = humans.length >= 2 ? "game" : "game_bot";
         const first = await this.credit(c, p.userId, reward, reason, g.gameId, `Place ${p.placement}`);
         if (!first) continue; // this game was already counted
+        await c.query(
+          "insert into game_log (user_id, game_id, placement, humans, captures, home) values ($1,$2,$3,$4,$5,$6) on conflict do nothing",
+          [p.userId, g.gameId, p.placement, humans.length, p.captures, p.home],
+        );
         await c.query(
           "update user_stats set games = games + 1, wins = wins + $2 where user_id = $1",
           [p.userId, p.placement === 1 ? 1 : 0],

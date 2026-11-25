@@ -2,6 +2,7 @@ import { BadRequestException, Body, Controller, Get, HttpCode, Inject, Param, Po
 import { InternalGuard } from "../auth/guards";
 import { userFromRequest } from "../auth/auth.controller";
 import { config } from "../config";
+import { MissionsService } from "./missions.service";
 import { RewardsService } from "./rewards.service";
 
 /** Player from the login token; in dev (no JWT_SECRET) from ?userId=. */
@@ -17,7 +18,24 @@ function who(req: any, query?: string): string {
 
 @Controller()
 export class RewardsController {
-  constructor(@Inject(RewardsService) private readonly rewards: RewardsService) {}
+  constructor(
+    @Inject(RewardsService) private readonly rewards: RewardsService,
+    @Inject(MissionsService) private readonly missions: MissionsService,
+  ) {}
+
+  @Get("me/missions")
+  listMissions(@Req() req: any, @Query("userId") q?: string) { return this.missions.missions(who(req, q)); }
+
+  @Post("me/missions/:id/claim")
+  @HttpCode(200)
+  claimMission(@Param("id") id: string, @Req() req: any, @Query("userId") q?: string) { return this.missions.claimMission(who(req, q), id); }
+
+  @Get("me/achievements")
+  listAchievements(@Req() req: any, @Query("userId") q?: string) { return this.missions.achievements(who(req, q)); }
+
+  @Post("me/achievements/:id/claim")
+  @HttpCode(200)
+  claimAchievement(@Param("id") id: string, @Req() req: any, @Query("userId") q?: string) { return this.missions.claimAchievement(who(req, q), id); }
 
   @Get("me/wallet")
   wallet(@Req() req: any, @Query("userId") q?: string) { return this.rewards.wallet(who(req, q)); }

@@ -90,3 +90,56 @@ describe("wallet and points api", { skip: !db && "no PostgreSQL available (set T
     assert.equal((await get("/leaderboard/yearly")).status, 400);
   });
 });
+
+const db2: TestDb | null = startTestDb();
+describe("missions and achievements", { skip: !db2 && "no PostgreSQL available (set TEST_DATABASE_URL)" }, () => {
+  let app: INestApplication;
+  let base = "";
+  const prevJwt = config.jwtSecret;
+  const INTERNAL = { "x-internal-key": "internal-secret", "content-type": "application/json" };
+  const api = (path: string, init?: RequestInit) => fetch(`${base}/api${path}`, init);
+  const result = (gameId: string, userId: string, placement: number, captures: number, home: number) =>
+    api("/internal/results", {
+      method: "POST", headers: INTERNAL,
+      body: JSON.stringify({ gameId, placements: [
+        { userId, placement, isBot: false, captures, home },
+        { userId: userId + "-opp", placement: placement === 1 ? 2 : 1, isBot: false, captures: 0, home: 0 },
+      ] }),
+    });
+  before(async () => {
+    config.jwtSecret = "";
+    config.databaseUrl = db2!.url;
+    config.internalApiKey = "internal-secret";
+    config.disableScheduler = true;
+    app = await createApp({ logger: false });
+    await app.listen(0);
+    base = (await app.getUrl()).replace("[::1]", "localhost");
+  });
+  after(async () => { config.jwtSecret = prevJwt; await app?.close(); db2?.stop(); });
+
+  it("tracks progress and pays each mission once", async () => {
+    await result("mg1", "mu", 1, 3, 4);
+    await result("mg2", "mu", 2, 2, 1);
+    const list = (await (await api("/me/missions?userId=mu")).json()) as any[];
+    const by = Object.fromEntries(list.map((m) => [m.id, m]));
+    assert.equal(by.play3.progress, 2);
+    assert.equal(by.win1.done, true);
+    assert.equal(by.capture5.done, true);
+    assert.equal(by.home4.done, true);
+    assert.equal((await api("/me/missions/play3/claim?userId=mu", { method: "POST" })).status, 400);
+    const claim = await api("/me/missions/win1/claim?userId=mu", { method: "POST" });
+    assert.equal(claim.status, 200);
+    assert.equal((await api("/me/missions/win1/claim?userId=mu", { method: "POST" })).status, 400);
+    assert.equal((await api("/me/missions/nope/claim?userId=mu", { method: "POST" })).status, 404);
+  });
+
+  it("achievements unlock from lifetime stats", async () => {
+    const list = (await (await api("/me/achievements?userId=mu")).json()) as any[];
+    assert.equal(list.find((a) => a.id === "first_game").done, true);
+    assert.equal(list.find((a) => a.id === "games_25").done, false);
+    const claim = await api("/me/achievements/first_win/claim?userId=mu", { method: "POST" });
+    assert.equal(claim.status, 200);
+    const w = (await (await api("/me/wallet?userId=mu")).json()) as any;
+    assert.ok(w.coins >= 50);
+  });
+});

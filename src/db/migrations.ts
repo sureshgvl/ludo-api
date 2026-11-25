@@ -137,4 +137,20 @@ export const MIGRATIONS: { id: string; sql: string }[] = [
       create index tournament_scores_user_idx on tournament_scores (tournament_id, user_id, points desc);
     `,
   },
+  {
+    id: "007_game_log",
+    sql: `
+      create table game_log (
+        user_id text not null,
+        game_id text not null,
+        placement integer not null,
+        humans integer not null,
+        captures integer not null default 0,
+        home integer not null default 0,
+        created_at timestamptz not null default now(),
+        primary key (user_id, game_id)
+      );
+      create index game_log_user_time on game_log (user_id, created_at desc);
+    `,
+  },
 ];
