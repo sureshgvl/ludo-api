@@ -39,6 +39,32 @@ Skeleton only. A health endpoint exists; auth, tournaments, leaderboards and pri
 
 Tournaments are free to enter with prizes funded by you or a sponsor. Do not add paid entry or a wallet before getting legal advice under India's Online Gaming Act 2025.
 
+## Tournament rules (set by the admin)
+
+Each tournament has a `rules` object (all optional), validated on create:
+
+| Rule | Meaning |
+|---|---|
+| `points` | Points by placement (existing field) |
+| `winBonus` | Extra points for 1st place in a game |
+| `capturePoints` | Points per opponent pawn captured |
+| `homePoints` | Points per own pawn that reached home |
+| `maxGames` | Only a player's first N games count |
+| `maxGamesPerDay` | Counted games per player per day (India time) |
+| `bestN` | Only the best N game scores are added up |
+| `minHumans` | Real players needed in a game for it to count (default 2) |
+| `minLevel` | Player level needed to play (checked at game join) |
+| `tiebreak` | `wins`, `fewest_games` or `earliest` |
+
+Every counted game is stored in `tournament_scores`; the leaderboard total is recomputed from it, so best-N is always exact.
+
+## Missions, achievements and friends
+
+- `GET /api/me/missions`, `POST /api/me/missions/:id/claim` - four daily missions (reset at midnight India time).
+- `GET /api/me/achievements`, `POST /api/me/achievements/:id/claim` - lifetime achievements. Both pay free coins and XP, once.
+- `GET/POST /api/me/friends`, `DELETE /api/me/friends/:id` - personal 6 character player code; adding a code makes both players friends.
+- Progress comes from `game_log`, which the game server fills through `POST /api/internal/results` (placement, captures, pawns home).
+
 ## Deploy on Render
 
 1. In Render: New → Blueprint → pick this repo. It creates `ludo-api` and the `ludo-db` PostgreSQL database; migrations run on start.
